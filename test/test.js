@@ -1,7 +1,8 @@
 let port = require('./../main.js').port,
   state = null;
 port.on('readable', function echo() {
-  if (null !== (term = port.read())) {
+  const term = port.read();
+  if (null !== term) {
     if (state === null) state = term;
     else port.write(term);
     echo();

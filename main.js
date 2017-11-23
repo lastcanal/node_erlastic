@@ -16,13 +16,19 @@ stdin.on('readable', read_term);
 stdin.on('end', process.exit);
 
 function read_term() {
-  let term;
-  if (term_len === undefined && null !== (term_bin = stdin.read(4))) {
-    term_len = bert.bytes_to_int(term_bin, 4, true);
+  if (term_len === undefined) {
+    const term_bin = stdin.read(4);
+    if (null !== term_bin) {
+      term_len = bert.bytes_to_int(term_bin, 4, true);
+    }
   }
-  if (term_len !== undefined && null !== (term = stdin.read(term_len))) {
-    term_len = undefined;
-    port.push(bert.decode(term));
+
+  if (term_len !== undefined) {
+    const term = stdin.read(term_len);
+    if (null !== term) {
+      term_len = undefined;
+      port.push(bert.decode(term));
+    }
   }
 }
 
@@ -47,17 +53,30 @@ function server(handler, init) {
   let state, first = true, state_lock = false;
 
   function send_response(type, arg1, arg2) {
-    if (type === "reply") port.write(arg1);
-    if ((type === "reply" && arg2 !== undefined) || (type === "noreply" && arg1 !== undefined)) {
+    if (type === "reply") {
+      port.write(arg1);
+    } else if ((type === "reply" && arg2 !== undefined) || (type === "noreply" && arg1 !== undefined)) {
       state = (arg2 === undefined) ? arg1 : arg2;
-    }
-    if (type === 'error') {
-      port.write(bert.tuple(bert.atom('error'), bert.tuple(bert.atom(arg1.type || 'user'), (arg1.code || 0), arg1.name, arg1.message, [arg1.stack])));
+    } else if (type === 'error') {
+      port.write(
+        bert.tuple(
+          bert.atom('error'),
+          bert.tuple(
+            bert.atom(arg1.type || 'user'),
+            (arg1.code || 0),
+            arg1.name,
+            arg1.message,
+            [arg1.stack]
+          )
+        )
+      );
     }
   }
 
   port.on('readable', function next_term() {
-    if (!state_lock && null !== (term = port.read())) {
+    if (state_lock) { return; }
+    const term = port.read();
+    if (null !== term) {
       state_lock = true;
       if (first) {
         state = (init) ? init(term) : term; // first term is initial state

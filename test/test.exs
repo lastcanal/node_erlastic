@@ -33,12 +33,12 @@ defmodule PortTest do
     :ok
   end
   
-  test "echo server return same term" do
+  test "echo server returns same term" do
     test = [:foo,"bar",%{hello: "world"},123,3.2,9007199254740992,{:a,:b}]
     assert  test ==  GenServer.call Echo, test
   end
   
-  test "calculator must return the good result" do
+  test "calculator returns good results" do
     GenServer.cast Calculator, {:add, 1}
     GenServer.cast Calculator, {:add, 2}
     GenServer.cast Calculator, {:rem, 3}
@@ -46,5 +46,10 @@ defmodule PortTest do
     GenServer.cast Calculator, {:add, 5}
     GenServer.cast Calculator, {:rem, 6}
     assert 3 = GenServer.call(Calculator,:get)
+  end
+
+  test "calculator returns error result when exception thrown" do
+    {:error, {:user, 0, "Error", "unexpected request", stack}} = GenServer.call Calculator, :purple
+    assert stack
   end
 end

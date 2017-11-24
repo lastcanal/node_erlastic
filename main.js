@@ -1,10 +1,10 @@
-let bert = require('./bert.js'),
+let BertClass = require('./bert.js'),
   Duplex = require('stream').Duplex,
-  util = require('util'),
-  stdin = process.stdin,
-  term_len = undefined;
-bert.decode_undefined_values = false;
-module.exports.buffer_len = log;
+  util = require('util');
+
+let stdin = process.stdin,
+  term_len = undefined,
+  bert = new BertClass();
 
 util.inherits(Port, Duplex);
 
@@ -52,11 +52,12 @@ function log(mes) {
 function server(handler, init) {
   let state, first = true, state_lock = false;
 
-  function send_response(type, arg1, arg2) {
+  function done(type, arg1, arg2) {
     if (type === "reply") {
       port.write(arg1);
-    } else if ((type === "reply" && arg2 !== undefined) || (type === "noreply" && arg1 !== undefined)) {
-      state = (arg2 === undefined) ? arg1 : arg2;
+      if (arg2 !== undefined) { state = arg2; }
+    } else if (type == "noreply") {
+      if (arg1 !== undefined) { state = arg1; }
     } else if (type === 'error') {
       port.write(
         bert.tuple(
@@ -66,7 +67,7 @@ function server(handler, init) {
             (arg1.code || 0),
             arg1.name,
             arg1.message,
-            [arg1.stack]
+            arg1.stack
           )
         )
       );
@@ -79,15 +80,15 @@ function server(handler, init) {
     if (null !== term) {
       state_lock = true;
       if (first) {
-        state = (init) ? init(term) : term; // first term is initial state
+        state = (init) ? init(term, bert) : term; // first term is initial state
         first = false;
         state_lock = false;
         next_term();
       } else {
         try {
-          handler(term, function(term) { port.write(term); }, state, send_response);
+          handler(term, function(term) { port.write(term); }, state, done);
         } catch (e) {
-          send_response("error", e);
+          done("error", e);
         }
 
         state_lock = false;
@@ -96,6 +97,7 @@ function server(handler, init) {
     }
   });
 }
+
 module.exports.port = port;
 module.exports.server = server;
 module.exports.log = log;

@@ -15,28 +15,36 @@ manager server, where you can add or remove an amount in the
 account and get it :
 
 ```javascript
-require('node_erlastic').server(function(term,from,current_amount,done){
-  if (term == "get") return done("reply",current_amount);
-  if (term[0] == "add") return done("noreply",current_amount+term[1]);
-  if (term[0] == "rem") return done("noreply",current_amount-term[1]);
-  throw new Error("unexpected request")
-});
+require('node_erlastic').server(
+  function(term, from, current_amount, done) {
+    // Responds with current_amount, leaves state unchanged.
+    // (Pass another argument to done to update the state)
+    if (term == "get") return done("reply", current_amount);
+
+    // Updates the current state without responding
+    if (term[0] == "add") return done("noreply", current_amount+term[1]);
+    if (term[0] == "rem") return done("noreply", current_amount-term[1]);
+
+    // Exceptions cause an error response
+    throw new Error("unexpected request")
+  },
+  function() {
+    // Initial state
+    return 0;
+  },
+);
 ```
 
 ```elixir
-GenServer.start_link(Exos.Proc,{"node calculator.js",0,cd: "/path/to/proj"}, name: Calculator)
+GenServer.start_link(Exos.Proc,{"node calculator.js", [], cd: "/path/to/proj"}, name: Calculator)
 GenServer.cast Calculator, {:add, 2}
 GenServer.cast Calculator, {:add, 3}
 GenServer.cast Calculator, {:rem, 1}
 4 = GenServer.call Calculator, :get
+{:error, {type, code, name, message, stack}} = GenServer.call Calculator, {:unknown_command}
 
 defmodule Exos.Proc do
   use GenServer
-  @moduledoc """
-    Generic port as gen_server wrapper :
-    send a message at init, first message is remote initial state
-    cast and call encode and decode erlang binary format
-  """
   def init({cmd,init,opts}) do
     port = Port.open({:spawn,'#{cmd}'}, [:binary,:exit_status, packet: 4] ++ opts)
     send(port,{self,{:command,:erlang.term_to_binary(init)}})
@@ -61,21 +69,23 @@ end
 
 ```javascript
 var Bert = require('node_erlastic/bert');
-// you can configure `convention`, `all_binaries_as_string` , `map_key_as_atom`, see below
-Bert.convention = Bert.ELIXIR;
-Bert.all_binaries_as_string = true;
+var bert = new Bert();
 
-Bert.encode({foo: "bar", k2: 4});
-Bert.encode({foo: "bar", k2: 4},true);
+// you can configure `convention`, `all_binaries_as_string` , `map_key_as_atom`, see below
+bert.convention = Bert.ELIXIR;
+bert.all_binaries_as_string = true;
+
+bert.encode({foo: "bar", k2: 4});
+bert.encode({foo: "bar", k2: 4},true);
 // with ",true", the result is not copied, the return buffer point always to
 // the same allocated memory
-Bert.decode(mybuffer);
+bert.decode(mybuffer);
 ```
 
 `Bert.decode` and `Bert.encode` use a nodejs `Buffer` object
 containing the binary erlang term, converted using the following rules :
 
-- erlang atom `foobar` is js `{type: "Atom",value: "foobar", toString->value}` create it with `Bert.atom("foobar")`
+- erlang atom `foobar` is js `{type: "Atom",value: "foobar", toString->value}` create it with `bert.atom("foobar")`
   - the `toString()` method allows you to match with string `myatom == 'foobar'`
 - erlang list is js list
 - erlang tuple `{a,b}` is js `{type: "Tuple",value: [a,b],length: 2, 0: a, 1: b}`
@@ -84,17 +94,17 @@ containing the binary erlang term, converted using the following rules :
 - erlang float is js float
 - other js objects are erlang maps
   - erlang keys are converted to string during decoding (js behavior)
-  - js keys are converted to erlang atom if `Bert.map_key_as_atom == true`
+  - js keys are converted to erlang atom if `bert.map_key_as_atom == true`
 - erlang binary is nodejs "Buffer"
-  - but converted into string if `Bert.convention == Bert.ELIXIR && Bert.all_binaries_as_string`
+  - but converted into string if `bert.convention == Bert.ELIXIR && bert.all_binaries_as_string`
 - js string is
-  - UTF8 erlang binary if `Bert.convention == Bert.ELIXIR`
-  - erlang character list if `Bert.convention == Bert.ERLANG`
+  - UTF8 erlang binary if `bert.convention == Bert.ELIXIR`
+  - erlang character list if `bert.convention == Bert.ERLANG`
 - js boolean are `true` and `false` atoms
 - js null and undefined are
-  - `nil` atom if `Bert.convention == Bert.ELIXIR`
-  - `undefined` atom if `Bert.convention == Bert.ERLANG`
-  - if `Bert.decode_undefined_values == false`, then `nil` and `undefined` are
+  - `nil` atom if `bert.convention == Bert.ELIXIR`
+  - `undefined` atom if `bert.convention == Bert.ERLANG`
+  - if `bert.decode_undefined_values == false`, then `nil` and `undefined` are
     decoded into atom instead of null
 
 ## The Port Duplex
@@ -155,7 +165,7 @@ from(myreply);
 ```
 
 Before sending request, the first message from the port will be
-used to define the initial state.
+used to define the initial state. However, if you pass an init function as the second argument to `server()`, then that function's return value will be the initial state instead. The init function will be called with two arguments: the initial message term from the port, and the instance of BertClass to configure encoding/decoding.
 
 Please see the beginning of this README to find a complete example.
 

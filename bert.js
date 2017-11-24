@@ -8,35 +8,34 @@
 // References: http://www.erlang.org/doc/apps/erts/erl_ext_dist.html#8
 
 function BertClass() {
-  this.BERT_START = 131;
-  this.SMALL_ATOM = 115;
-  this.ATOM = 100;
-  this.BINARY = 109;
-  this.SMALL_INTEGER = 97;
-  this.INTEGER = 98;
-  this.SMALL_BIG = 110;
-  this.LARGE_BIG = 111;
-  this.FLOAT = 99;
-  this.STRING = 107;
-  this.LIST = 108;
-  this.SMALL_TUPLE = 104;
-  this.LARGE_TUPLE = 105;
-  this.NIL = 106;
-  this.MAP = 116;
-  this.NEW_FLOAT = 70;
-  this.ZERO = 0;
-
-  this.ELIXIR = 0;
-  this.ERLANG = 1;
-
   this.all_binaries_as_string = false;
   this.map_key_as_atom = true;
-  this.decode_undefined_values = true;
+  this.decode_null_values = false;
   this.convention = this.ELIXIR;
 
   this.output_buffer = new Buffer(10000000);
   this.output_buffer[0] = this.BERT_START;
 }
+
+BertClass.prototype.BERT_START = 131;
+BertClass.prototype.SMALL_ATOM = 115;
+BertClass.prototype.ATOM = 100;
+BertClass.prototype.BINARY = 109;
+BertClass.prototype.SMALL_INTEGER = 97;
+BertClass.prototype.INTEGER = 98;
+BertClass.prototype.SMALL_BIG = 110;
+BertClass.prototype.LARGE_BIG = 111;
+BertClass.prototype.FLOAT = 99;
+BertClass.prototype.STRING = 107;
+BertClass.prototype.LIST = 108;
+BertClass.prototype.SMALL_TUPLE = 104;
+BertClass.prototype.LARGE_TUPLE = 105;
+BertClass.prototype.NIL = 106;
+BertClass.prototype.MAP = 116;
+BertClass.prototype.NEW_FLOAT = 70;
+
+BertClass.prototype.ELIXIR = 0;
+BertClass.prototype.ERLANG = 1;
 
 function BertAtom(Obj) {
   this.type = "Atom";
@@ -327,9 +326,9 @@ BertClass.prototype.decode_atom = function(buffer, Count) {
     Value = true;
   } else if (Value === "false") {
     Value = false;
-  } else if (this.decode_undefined_values && this.convention === this.ELIXIR && Value === "nil") {
+  } else if (this.decode_null_values && this.convention === this.ELIXIR && Value === "nil") {
     Value = null;
-  } else if (this.decode_undefined_values && this.convention === this.ERLANG && Value === "undefined") {
+  } else if (this.decode_null_values && this.convention === this.ERLANG && Value === "undefined") {
     Value = null;
   } else {
     Value = this.atom(Value);
@@ -501,4 +500,4 @@ BertClass.prototype.binary_to_list = function(Str) {
   return ret;
 };
 
-module.exports = new BertClass();
+module.exports = BertClass;

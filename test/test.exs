@@ -39,18 +39,18 @@ defmodule PortTest do
   end
   
   test "calculator returns good results" do
-    assert 0 = GenServer.call(Calculator,:get)
+    assert 0 = GenServer.call(Calculator,{:get})
     GenServer.cast Calculator, {:add, 1}
     GenServer.cast Calculator, {:add, 2}
     GenServer.cast Calculator, {:rem, 3}
     GenServer.cast Calculator, {:add, 4}
     GenServer.cast Calculator, {:add, 5}
     GenServer.cast Calculator, {:rem, 6}
-    assert 3 = GenServer.call(Calculator,:get)
+    assert 3 = GenServer.call(Calculator,{:get})
   end
 
   test "calculator returns error result when exception thrown" do
-    {:error, {:user, 0, "Error", "unexpected request", stack}} = GenServer.call Calculator, :purple
+    {:error, {:user, 0, "Error", "unexpected request", stack}} = GenServer.call Calculator, {:purple}
     assert stack
   end
 end

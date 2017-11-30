@@ -1,6 +1,7 @@
 let BertClass = require('./bert.js'),
   Duplex = require('stream').Duplex,
-  util = require('util');
+  util = require('util'),
+  Tuple = require('tuple-w');
 
 let stdin = process.stdin,
   term_len = undefined,
@@ -60,9 +61,9 @@ function server(handler, init) {
       if (arg1 !== undefined) { state = arg1; }
     } else if (type === 'error') {
       port.write(
-        bert.tuple(
+        new Tuple(
           bert.atom('error'),
-          bert.tuple(
+          new Tuple(
             bert.atom(arg1.type || 'user'),
             (arg1.code || 0),
             arg1.name,

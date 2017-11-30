@@ -7,14 +7,16 @@
 //
 // References: http://www.erlang.org/doc/apps/erts/erl_ext_dist.html#8
 
+const Tuple = require('tuple-w');
+
 function BertClass() {
   this.all_binaries_as_string = false;
-  this.map_key_as_atom = true;
+  this.encode_string_key_as_atom = true;
   this.decode_null_values = false;
   this.convention = this.ELIXIR;
+  this.output_buffer_size = 10 * 1024 * 1024; // Default is 10 MB
 
-  this.output_buffer = new Buffer(10000000);
-  this.output_buffer[0] = this.BERT_START;
+  this._output_buffer = null;
 }
 
 BertClass.prototype.BERT_START = 131;
@@ -37,133 +39,125 @@ BertClass.prototype.NEW_FLOAT = 70;
 BertClass.prototype.ELIXIR = 0;
 BertClass.prototype.ERLANG = 1;
 
-function BertAtom(Obj) {
-  this.type = "Atom";
-  this.value = Obj;
-  this.toString = function() {
-    return Obj;
-  };
-}
 
-function BertTuple(Arr) {
-  this.type = "Tuple";
-  this.length = Arr.length;
-  this.value = Arr;
-  for (let i = 0; i < Arr.length; i++) {
-    this[i] = Arr[i];
+function BertAtom(s) {
+  this.value = s || '';
+
+  Object.defineProperty(this, 'length', {
+    get: function () { return this.value.length; }
+  });
+
+  // This determines what appears in console.log()
+  Object.defineProperty(this, 'inspect', {
+    value: function () { return "BertAtom(" + this.value + ")"; }
+  });
+};
+BertAtom.prototype = Object.create(String.prototype);
+BertAtom.prototype.valueOf = function() { return this.value };
+BertAtom.prototype.toString = BertAtom.prototype.valueOf
+
+BertClass.atom = function(obj) {
+  if (obj instanceof BertAtom) {
+    return obj;
+  } else {
+    return new BertAtom(obj);
   }
-  this.toString = function() {
-    let i, s = "";
-    for (i = 0; i < this.length; i++) {
-      if (s !== "") {
-        s += ", ";
-      }
-      s += this[i].toString();
-    }
-
-    return "{" + s + "}";
-  };
 }
-
-
 
 // - INTERFACE -
-BertClass.prototype.encode = function(Obj, nocopy) {
-  if (nocopy === undefined) nocopy = false;
-  let tail_buffer = this.encode_inner(Obj, this.output_buffer.slice(1));
+
+BertClass.prototype.atom = BertClass.atom;
+
+BertClass.prototype.encode = function(obj) {
+  return Buffer.from(this.encode_nocopy(obj));
+}
+
+BertClass.prototype.encode_nocopy = function(obj) {
+  if (this._output_buffer === null) {
+    this._output_buffer = new Buffer(this.output_buffer_size);
+    this._output_buffer[0] = this.BERT_START;
+  }
+
+  let tail_buffer = this.encode_inner(obj, this._output_buffer.slice(1));
   if (tail_buffer.length == 0) {
-    throw new Error("Bert encode a too big term, encoding buffer overflow");
+    throw new Error("Bert encoding buffer overflow");
   }
-  if (!nocopy) {
-    const res = new Buffer(this.output_buffer.length - tail_buffer.length);
-    this.output_buffer.copy(res, 0, 0, res.length);
-    return res;
-  } else {
-    return this.output_buffer.slice(0, this.output_buffer.length - tail_buffer.length);
-  }
+
+  return this._output_buffer.slice(0, this._output_buffer.length - tail_buffer.length);
 };
 
 BertClass.prototype.decode = function(buffer) {
   if (buffer[0] !== this.BERT_START) {
     throw ("Not a valid BERT.");
   }
-  let Obj = this.decode_inner(buffer.slice(1));
-  if (Obj.rest.length !== 0) {
+  let obj = this.decode_inner(buffer.slice(1));
+  if (obj.rest.length !== 0) {
     throw ("Invalid BERT.");
   }
-  return Obj.value;
+  return obj.value;
 };
-
-BertClass.prototype.atom = function(Obj) {
-  return new BertAtom(Obj);
-};
-
-BertClass.prototype.tuple = function() {
-  return new BertTuple(arguments);
-};
-
 
 
 // - ENCODING -
 
-BertClass.prototype.encode_inner = function(Obj, buffer) {
-  let func = 'encode_' + typeof(Obj);
-  return this[func](Obj, buffer);
+BertClass.prototype.encode_inner = function(obj, buffer) {
+  let func = 'encode_' + typeof(obj);
+  return this[func](obj, buffer);
 };
 
-BertClass.prototype.encode_string = function(Obj, buffer) {
+BertClass.prototype.encode_string = function(obj, buffer) {
   if (this.convention === this.ELIXIR) {
-    return this.encode_binary(new Buffer(Obj), buffer);
+    return this.encode_binary(new Buffer(obj), buffer);
   } else {
     buffer[0] = this.STRING;
-    buffer.writeUInt16BE(Obj.length, 1);
-    let len = buffer.write(Obj, 3);
+    buffer.writeUInt16BE(obj.length, 1);
+    let len = buffer.write(obj, 3);
     return buffer.slice(3 + len);
   }
 };
 
-BertClass.prototype.encode_boolean = function(Obj, buffer) {
-  if (Obj) {
+BertClass.prototype.encode_boolean = function(obj, buffer) {
+  if (obj) {
     return this.encode_inner(this.atom("true"), buffer);
   } else {
     return this.encode_inner(this.atom("false"), buffer);
   }
 };
 
-BertClass.prototype.encode_number = function(Obj, buffer) {
-  let isInteger = (Obj % 1 === 0);
+BertClass.prototype.encode_number = function(obj, buffer) {
+  let isInteger = (obj % 1 === 0);
 
   // Handle floats...
   if (!isInteger) {
-    return this.encode_float(Obj, buffer);
+    return this.encode_float(obj, buffer);
   }
 
   // Small int...
-  if (isInteger && Obj >= 0 && Obj < 256) {
+  if (isInteger && obj >= 0 && obj < 256) {
     buffer[0] = this.SMALL_INTEGER;
-    buffer.writeUInt8(Obj, 1);
+    buffer.writeUInt8(obj, 1);
     return buffer.slice(2);
   }
 
   // 4 byte int...
-  if (isInteger && Obj >= -134217728 && Obj <= 134217727) {
+  if (isInteger && obj >= -134217728 && obj <= 134217727) {
     buffer[0] = this.INTEGER;
-    buffer.writeInt32BE(Obj, 1);
+    buffer.writeInt32BE(obj, 1);
     return buffer.slice(5);
   }
 
   // Bignum...
   let num_buffer = new Buffer(buffer.length);
-  if (Obj < 0) {
-    Obj *= -1;
+  if (obj < 0) {
+    obj *= -1;
     num_buffer[0] = 1;
   } else {
     num_buffer[0] = 0;
   }
   let offset = 1;
-  while (Obj !== 0) {
-    num_buffer[offset] = Obj % 256;
-    Obj = Math.floor(Obj / 256);
+  while (obj !== 0) {
+    num_buffer[offset] = obj % 256;
+    obj = Math.floor(obj / 256);
     offset++;
   }
   if (offset < 256) {
@@ -179,97 +173,95 @@ BertClass.prototype.encode_number = function(Obj, buffer) {
   }
 };
 
-BertClass.prototype.encode_float = function(Obj, buffer) {
+BertClass.prototype.encode_float = function(obj, buffer) {
   // float...
   buffer[0] = this.NEW_FLOAT;
-  buffer.writeDoubleBE(Obj, 1);
+  buffer.writeDoubleBE(obj, 1);
   return buffer.slice(9);
 };
 
-BertClass.prototype.encode_object = function(Obj, buffer) {
+BertClass.prototype.encode_object = function(obj, buffer) {
   // Check if it's an atom, binary, or tuple...
-  if (Obj === null) {
+  if (obj === null) {
     let undefined_atom = (this.convention === this.ELIXIR) ? "nil" : "undefined";
     return this.encode_inner(this.atom(undefined_atom), buffer);
+  } else if (obj instanceof Buffer) {
+    return this.encode_binary(obj, buffer);
+  } else if (obj instanceof Array) {
+    return this.encode_array(obj, buffer);
+  } else if (obj instanceof BertAtom) {
+    return this.encode_atom(obj, buffer);
+  } else if (obj instanceof Tuple) {
+    return this.encode_tuple(obj, buffer);
+  } else {
+    // Treat the object as an associative array...
+    return this.encode_map(obj, buffer);
   }
-  if (Obj instanceof Buffer) {
-    return this.encode_binary(Obj, buffer);
-  }
-  if (Obj instanceof Array) {
-    return this.encode_array(Obj, buffer);
-  }
-  if (Obj.type === "Atom") {
-    return this.encode_atom(Obj, buffer);
-  }
-  if (Obj.type === "Tuple") {
-    return this.encode_tuple(Obj, buffer);
-  }
-  // Treat the object as an associative array...
-  return this.encode_map(Obj, buffer);
 };
 
-BertClass.prototype.encode_atom = function(Obj, buffer) {
+BertClass.prototype.encode_atom = function(obj, buffer) {
   buffer[0] = this.ATOM;
-  buffer.writeUInt16BE(Obj.value.length, 1);
-  let len = buffer.write(Obj.value, 3);
+  const str = obj.toString();
+  buffer.writeUInt16BE(str.length, 1);
+  let len = buffer.write(str, 3);
   return buffer.slice(3 + len);
 };
 
-BertClass.prototype.encode_binary = function(Obj, buffer) {
+BertClass.prototype.encode_binary = function(obj, buffer) {
   buffer[0] = this.BINARY;
-  buffer.writeUInt32BE(Obj.length, 1);
-  Obj.copy(buffer, 5);
-  return buffer.slice(5 + Obj.length);
+  buffer.writeUInt32BE(obj.length, 1);
+  obj.copy(buffer, 5);
+  return buffer.slice(5 + obj.length);
 };
 
 // undefined is null
-BertClass.prototype.encode_undefined = function(Obj, buffer) {
+BertClass.prototype.encode_undefined = function(obj, buffer) {
   return this.encode_inner(null, buffer);
 };
 
-BertClass.prototype.encode_tuple = function(Obj, buffer) {
+BertClass.prototype.encode_tuple = function(obj, buffer) {
   let i;
-  if (Obj.length < 256) {
+  if (obj.length < 256) {
     buffer[0] = this.SMALL_TUPLE;
-    buffer.writeUInt8(Obj.length, 1);
+    buffer.writeUInt8(obj.length, 1);
     buffer = buffer.slice(2);
   } else {
     buffer[0] = this.LARGE_TUPLE;
-    buffer.writeUInt32BE(Obj.length, 1);
+    buffer.writeUInt32BE(obj.length, 1);
     buffer = buffer.slice(5);
   }
-  for (i = 0; i < Obj.length; i++) {
-    buffer = this.encode_inner(Obj[i], buffer);
+  for (i = 0; i < obj.length; i++) {
+    buffer = this.encode_inner(obj[i], buffer);
   }
   return buffer;
 };
 
-BertClass.prototype.encode_array = function(Obj, buffer) {
-  if (Obj.length == 0) {
+BertClass.prototype.encode_array = function(obj, buffer) {
+  if (obj.length == 0) {
     buffer[0] = this.NIL;
     return buffer.slice(1);
   }
   buffer[0] = this.LIST;
-  buffer.writeUInt32BE(Obj.length, 1);
+  buffer.writeUInt32BE(obj.length, 1);
   buffer = buffer.slice(5);
   let i;
-  for (i = 0; i < Obj.length; i++) {
-    buffer = this.encode_inner(Obj[i], buffer);
+  for (i = 0; i < obj.length; i++) {
+    buffer = this.encode_inner(obj[i], buffer);
   }
   buffer[0] = this.NIL;
   return buffer.slice(1);
 };
 
-BertClass.prototype.encode_map = function(Obj, buffer) {
-  let keys = Object.keys(Obj);
+BertClass.prototype.encode_map = function(obj, buffer) {
+  let keys = Object.keys(obj);
   buffer[0] = this.MAP;
   buffer.writeUInt32BE(keys.length, 1);
   buffer = buffer.slice(5);
   let i;
   for (i = 0; i < keys.length; i++) {
-    const key = (this.map_key_as_atom) ? this.atom(keys[i]) : keys[i];
+    const key = (this.encode_string_key_as_atom) ? this.atom(keys[i]) : keys[i];
     buffer = this.encode_inner(key, buffer);
-    buffer = this.encode_inner(Obj[keys[i]], buffer);
+    buffer = this.encode_inner(obj[keys[i]], buffer);
   }
   return buffer;
 };
@@ -317,36 +309,36 @@ BertClass.prototype.decode_inner = function(buffer) {
   }
 };
 
-BertClass.prototype.decode_atom = function(buffer, Count) {
-  let Size, Value;
-  Size = this.bytes_to_int(buffer, Count);
-  buffer = buffer.slice(Count);
-  Value = buffer.toString('utf8', 0, Size);
-  if (Value === "true") {
-    Value = true;
-  } else if (Value === "false") {
-    Value = false;
-  } else if (this.decode_null_values && this.convention === this.ELIXIR && Value === "nil") {
-    Value = null;
-  } else if (this.decode_null_values && this.convention === this.ERLANG && Value === "undefined") {
-    Value = null;
+BertClass.prototype.decode_atom = function(buffer, count) {
+  const size = this.bytes_to_int(buffer, count);
+  buffer = buffer.slice(count);
+  const value = buffer.toString('utf8', 0, size);
+  let result;
+  if (value === "true") {
+    result = true;
+  } else if (value === "false") {
+    result = false;
+  } else if (this.decode_null_values && this.convention === this.ELIXIR && value === "nil") {
+    result = null;
+  } else if (this.decode_null_values && this.convention === this.ERLANG && value === "undefined") {
+    result = null;
   } else {
-    Value = this.atom(Value);
+    result = this.atom(value);
   }
   return {
-    value: Value,
-    rest: buffer.slice(Size),
+    value: result,
+    rest: buffer.slice(size),
   };
 };
 
 BertClass.prototype.decode_binary = function(buffer) {
-  let Size = this.bytes_to_int(buffer, 4);
+  const size = this.bytes_to_int(buffer, 4);
   buffer = buffer.slice(4);
-  let bin = new Buffer(Size);
-  buffer.copy(bin, 0, 0, Size);
+  let bin = new Buffer(size);
+  buffer.copy(bin, 0, 0, size);
   return {
-    value: (this.convention === this.ELIXIR && this.all_binaries_as_string) ? bin.toString() : bin,
-    rest: buffer.slice(Size),
+    value: this.all_binaries_as_string ? bin.toString() : bin,
+    rest: buffer.slice(size),
   };
 };
 
@@ -438,17 +430,17 @@ BertClass.prototype.decode_map = function(buffer) {
   };
 };
 
-BertClass.prototype.decode_tuple = function(buffer, Count) {
-  let Size, i, El, Arr = [];
-  Size = this.bytes_to_int(buffer, Count);
-  buffer = buffer.slice(Count);
-  for (i = 0; i < Size; i++) {
-    El = this.decode_inner(buffer);
-    Arr.push(El.value);
-    buffer = El.rest;
+BertClass.prototype.decode_tuple = function(buffer, count) {
+  const arr = [];
+  const size = this.bytes_to_int(buffer, count);
+  buffer = buffer.slice(count);
+  for (let i = 0; i < size; i++) {
+    const el = this.decode_inner(buffer);
+    arr.push(el.value);
+    buffer = el.rest;
   }
   return {
-    value: this.tuple.apply(this, Arr),
+    value: new Tuple(...arr),
     rest: buffer,
   };
 };
@@ -489,8 +481,8 @@ BertClass.prototype.pp_bytes = function(Bin) {
 };
 
 // Pretty Print a JS object in Erlang term form.
-BertClass.prototype.pp_term = function(Obj) {
-  return Obj.toString();
+BertClass.prototype.pp_term = function(obj) {
+  return obj.toString();
 };
 
 BertClass.prototype.binary_to_list = function(Str) {

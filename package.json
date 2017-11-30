@@ -25,5 +25,8 @@
   "bugs": {
     "url": "https://github.com/awetzel/node_erlastic/issues"
   },
-  "homepage": "https://github.com/awetzel/node_erlastic"
+  "homepage": "https://github.com/awetzel/node_erlastic",
+  "dependencies": {
+    "tuple-w": "^1.1"
+  }
 }

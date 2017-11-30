@@ -71,32 +71,38 @@ end
 var Bert = require('node_erlastic/bert');
 var bert = new Bert();
 
-// you can configure `convention`, `all_binaries_as_string` , `map_key_as_atom`, see below
+// you can configure `convention`, `all_binaries_as_string` , `encode_string_key_as_atom`, etc., see below
 bert.convention = Bert.ELIXIR;
 bert.all_binaries_as_string = true;
 
-bert.encode({foo: "bar", k2: 4});
-bert.encode({foo: "bar", k2: 4},true);
-// with ",true", the result is not copied, the return buffer point always to
-// the same allocated memory
-bert.decode(mybuffer);
+var buf = bert.encode([1,2,3,4]);
+var arr = bert.decode(buf);
+
+// encode_nocopy is faster, but uses a shared buffer, i.e. a second call to encode_nocopy will clobber the
+// value returned by the first call
+var bufDanger = bert.encode_nocopy({foo: "bar", k2: 4},true);
 ```
 
 `Bert.decode` and `Bert.encode` use a nodejs `Buffer` object
 containing the binary erlang term, converted using the following rules :
 
-- erlang atom `foobar` is js `{type: "Atom",value: "foobar", toString->value}` create it with `bert.atom("foobar")`
-  - the `toString()` method allows you to match with string `myatom == 'foobar'`
-- erlang list is js list
-- erlang tuple `{a,b}` is js `{type: "Tuple",value: [a,b],length: 2, 0: a, 1: b}`
-  - the js object allows you to access elements by index
+(PROBABLY A BAD IDEA???)
+- erlang atom `foobar` becomes an instance of the String-like class BertAtom
+  - create new atoms with `bert.atom('foo')`
+  - js objects cannot have BertAtom keys, trying it will coerce the keys to plain strings
+  - however, see `bert.encode_string_key_as_atom` below
+- erlang list is js array
+- erlang tuple `{a,b}` is Tuple object from [the tuple-w library](https://github.com/Olical/tuple)
+  - the Tuple object allows you to access elements by index, like an array
+  - create new Tuples with `new Tuple()`, e.g. `new Tuple('foo', 1, 'bar', 2)`
 - erlang integer is js integer
 - erlang float is js float
 - other js objects are erlang maps
-  - erlang keys are converted to string during decoding (js behavior)
-  - js keys are converted to erlang atom if `bert.map_key_as_atom == true`
+  - erlang atom keys are converted to js strings during decoding
+  - js string keys are converted to erlang atom if `bert.encode_string_key_as_atom == true` (default is `false`)
+  - js symbol keys cannot be converted to atoms if they are not in the symbol registry
 - erlang binary is nodejs "Buffer"
-  - but converted into string if `bert.convention == Bert.ELIXIR && bert.all_binaries_as_string`
+  - but converted into string if `bert.all_binaries_as_string`
 - js string is
   - UTF8 erlang binary if `bert.convention == Bert.ELIXIR`
   - erlang character list if `bert.convention == Bert.ERLANG`
@@ -104,7 +110,7 @@ containing the binary erlang term, converted using the following rules :
 - js null and undefined are
   - `nil` atom if `bert.convention == Bert.ELIXIR`
   - `undefined` atom if `bert.convention == Bert.ERLANG`
-  - if `bert.decode_undefined_values == false`, then `nil` and `undefined` are
+  - but, if `bert.decode_undefined_values == false`, then `nil` and `undefined` are
     decoded into atom instead of null
 
 ## The Port Duplex

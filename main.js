@@ -102,3 +102,4 @@ function server(handler, init) {
 module.exports.port = port;
 module.exports.server = server;
 module.exports.log = log;
+module.exports.bert = bert;
